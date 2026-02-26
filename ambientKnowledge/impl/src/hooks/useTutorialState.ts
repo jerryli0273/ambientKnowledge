@@ -5,6 +5,8 @@ import { TUTORIAL_EVENTS } from "@/lib/tutorialEvents";
 
 const STORAGE_OPEN_KEY = "ambientKnowledge:tutorialOpen";
 const STORAGE_STEP_KEY = "ambientKnowledge:tutorialStepIndex";
+const STORAGE_DISMISSED_KEY = "ambientKnowledge:tutorialDismissed";
+const STORAGE_AUTOOPEN_KEY = "ambientKnowledge:tutorialAutoOpened";
 
 function safeRead(key: string): string | null {
   if (typeof window === "undefined") return null;
@@ -48,11 +50,15 @@ export function useTutorialState({ autoOpen }: { autoOpen?: boolean } = {}) {
     setInitialStepIndex(0);
     setOpen(true);
     safeWrite(STORAGE_STEP_KEY, "0");
+    // Manual/open-event starts should override a previous dismissal.
+    safeWrite(STORAGE_DISMISSED_KEY, "false");
   }, []);
 
   const close = useCallback(() => {
     setOpen(false);
     safeWrite(STORAGE_OPEN_KEY, "false");
+    // If the user closes/skips, don't auto-open again this session.
+    safeWrite(STORAGE_DISMISSED_KEY, "true");
   }, []);
 
   const persistStepIndex = useCallback((nextIndex: number) => {
@@ -68,6 +74,10 @@ export function useTutorialState({ autoOpen }: { autoOpen?: boolean } = {}) {
   useEffect(() => {
     if (!autoOpen) return;
     if (open) return;
+    const dismissed = readBool(STORAGE_DISMISSED_KEY, false);
+    const alreadyAutoOpened = readBool(STORAGE_AUTOOPEN_KEY, false);
+    if (dismissed || alreadyAutoOpened) return;
+    safeWrite(STORAGE_AUTOOPEN_KEY, "true");
     openFromStart();
   }, [autoOpen, open, openFromStart]);
 
