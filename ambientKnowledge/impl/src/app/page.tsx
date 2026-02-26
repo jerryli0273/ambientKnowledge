@@ -7,7 +7,7 @@ import Composer from "@/components/Composer";
 import ContextCard from "@/components/ContextCard";
 import MessageList from "@/components/MessageList";
 import Avatar from "@/components/Avatar";
-import TutorialOverlay from "@/components/TutorialOverlay";
+import TutorialGate from "@/components/TutorialGate";
 import { useContextSuggestion } from "@/hooks/useContextSuggestion";
 import { USERS, CURRENT_USER_ID } from "@/lib/users";
 import {
@@ -18,6 +18,7 @@ import {
   getChannelById,
 } from "@/lib/channels";
 import type { Message, AttachedContext } from "@/lib/types";
+import { emitTutorialMessageSent, emitTutorialContextAttached, emitTutorialOpen } from "@/lib/tutorialEvents";
 
 type ActiveView =
   | { kind: "channel"; channelId: string }
@@ -33,7 +34,9 @@ interface NavState {
 export default function Home() {
   const initialChannel = DEFAULT_CHANNEL_ID;
 
-  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [tutorialIsOpen, setTutorialIsOpen] = useState(false);
+  const [tutorialStepKey, setTutorialStepKey] = useState<string>("");
+  const tutorialWasOpenRef = useRef(false);
 
   const [activeView, setActiveView] = useState<ActiveView>({
     kind: "channel",
@@ -127,12 +130,6 @@ export default function Home() {
     const dmFromUrl = params.get("dm");
     const channelFromUrl = params.get("channel");
 
-    const forceTutorial = params.get("tutorial") === "1";
-    const done = window.localStorage.getItem("ak_tutorial_done") === "1";
-    if (forceTutorial || !done) {
-      setTutorialOpen(true);
-    }
-
     let view: ActiveView = { kind: "channel", channelId: initialChannel };
 
     if (dmFromUrl && USERS[dmFromUrl]) {
@@ -152,14 +149,18 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const closeTutorial = useCallback(() => {
+  useEffect(() => {
+    if (tutorialIsOpen) {
+      tutorialWasOpenRef.current = true;
+      return;
+    }
+    if (!tutorialWasOpenRef.current) return;
     try {
       window.localStorage.setItem("ak_tutorial_done", "1");
     } catch {
       // ignore
     }
-    setTutorialOpen(false);
-  }, []);
+  }, [tutorialIsOpen]);
 
   // ── Popstate: restore from history.state ──────────────────
   useEffect(() => {
@@ -241,8 +242,29 @@ export default function Home() {
     [onDraftChange],
   );
 
+  const dmHasAnyAttachedContextMessage = useMemo(() => {
+    if (activeView.kind !== "dm") return false;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.senderId !== CURRENT_USER_ID) continue;
+      return !!msg.attachedContext;
+    }
+    return false;
+  }, [activeView.kind, messages]);
+
+  const tutorialRequiresAttachToSendDm =
+    tutorialIsOpen &&
+    activeView.kind === "dm" &&
+    (tutorialStepKey === "try-dm" || (tutorialStepKey === "sources" && !dmHasAnyAttachedContextMessage));
+
+  const blockDmSendForTutorial = tutorialRequiresAttachToSendDm && !attachedContext;
+  const blockDmSendReason = "Attach the Suggested Context card to send this DM during the tutorial.";
+
   const handleSend = useCallback(
     (text: string) => {
+      if (blockDmSendForTutorial) {
+        return;
+      }
       const msg: Message = {
         id: `msg-${Date.now()}`,
         senderId: CURRENT_USER_ID,
@@ -265,8 +287,10 @@ export default function Home() {
       setAttachedContext(null);
       setDraftText("");
       dismiss();
+
+      emitTutorialMessageSent();
     },
-    [recipientId, attachedContext, dismiss, activeView],
+    [recipientId, attachedContext, dismiss, activeView, blockDmSendForTutorial],
   );
 
   const handleAttach = useCallback(() => {
@@ -278,6 +302,8 @@ export default function Home() {
       sources: suggestion.sources ?? [],
     });
     dismiss();
+
+    emitTutorialContextAttached();
   }, [suggestion, dismiss]);
 
   const handleInsertLink = useCallback(() => {
@@ -312,6 +338,25 @@ export default function Home() {
     [draftText, onDraftChange],
   );
 
+  const handleTutorialFillComposer = useCallback(
+    (text: string) => {
+      setDraftText(text);
+      onDraftChange(text);
+    },
+    [onDraftChange],
+  );
+
+  const handleTutorialNavigate = useCallback(
+    (target: { kind: "channel"; channelId: string } | { kind: "dm"; recipientId: string }) => {
+      if (target.kind === "channel") {
+        selectChannel(target.channelId);
+      } else {
+        selectRecipient(target.recipientId);
+      }
+    },
+    [selectChannel, selectRecipient],
+  );
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
@@ -321,7 +366,9 @@ export default function Home() {
         onSelectChannel={selectChannel}
         recipientId={recipientId}
         onSelectRecipient={selectRecipient}
-        onOpenTutorial={() => setTutorialOpen(true)}
+        onOpenTutorial={() => {
+          emitTutorialOpen();
+        }}
       />
 
       {/* Main chat area */}
@@ -376,23 +423,17 @@ export default function Home() {
           onDraftChange={handleDraftChange}
           onSend={handleSend}
           onRemoveContext={handleRemoveContext}
+          sendDisabled={blockDmSendForTutorial}
+          sendDisabledReason={blockDmSendReason}
         />
       </div>
 
-      <TutorialOverlay
-        open={tutorialOpen}
-        onClose={closeTutorial}
-        onFillComposer={(text) => {
-          setDraftText(text);
-          onDraftChange(text);
-        }}
-        onNavigate={(target) => {
-          if (target.kind === "channel") {
-            selectChannel(target.channelId);
-          } else {
-            selectRecipient(target.recipientId);
-          }
-        }}
+      <TutorialGate
+        onFillComposer={handleTutorialFillComposer}
+        onNavigate={handleTutorialNavigate}
+        onOpenChange={setTutorialIsOpen}
+        onStepKeyChange={setTutorialStepKey}
+        autoOpen
       />
     </div>
   );

@@ -14,13 +14,14 @@ export function getAnthropicApiKey(): string | undefined {
   );
 }
 
+// Latency matters for this demo UX. Try the fastest model first, but keep a
+// stable older Haiku as a fallback in case the "latest" alias is unavailable.
 const DEFAULT_MODEL = "claude-3-haiku-20240307";
 const FALLBACK_MODELS = [
-  // Prefer higher quality when available, but fall back to broadly available.
-  "claude-3-5-sonnet-latest",
   "claude-3-5-haiku-latest",
   DEFAULT_MODEL,
   "claude-3-sonnet-20240229",
+  "claude-3-5-sonnet-latest",
 ].filter(Boolean);
 
 let resolvedModel: string | null = null;
@@ -58,35 +59,16 @@ function getClient(): Anthropic {
   return cachedClient;
 }
 
-const COMPOSE_SYSTEM_PROMPT = `You are an invisible AI collaborator embedded in a workplace messaging app.
-The user is composing a message. Your job: synthesize relevant internal knowledge into a compact context card they can attach to their message so the recipient gets up to speed instantly.
+const COMPOSE_SYSTEM_PROMPT = `You are an invisible AI collaborator in a workplace messaging app.
+Only use the provided snippets; do not invent facts.
 
-Rules:
-- ONLY use the knowledge snippets provided. Never invent facts.
-- Write a SHORT topic label (3-8 words) that captures the core subject.
-- Write a summary of 2-3 sentences that directly helps the recipient understand the context behind the message being composed. Focus on what's most relevant to the draft.
-- Produce 0-2 actionable open questions — things the sender likely needs to address or confirm. Frame them as direct questions the sender could ask in their message.
-- If the snippets are NOT relevant to the draft at all, respond with: {"insufficient": true}
+Return ONLY valid JSON:
+{"topic":"3-8 word label","summary":"1-2 sentences","openQuestions":["question",...]} or {"insufficient":true}`;
 
-Respond ONLY with valid JSON — no markdown fences, no commentary:
-{"topic": "string", "summary": "string", "openQuestions": ["string", ...]}
-OR
-{"insufficient": true}`;
-
-const LOOKUP_SYSTEM_PROMPT = `You are an invisible AI collaborator embedded in a workplace messaging app.
-A user received a message and clicked "What's this about?" to understand the context behind it. Your job: synthesize relevant internal knowledge to explain what the incoming message is referring to.
-
-Rules:
-- ONLY use the knowledge snippets provided. Never invent facts.
-- Write a SHORT topic label (3-8 words) that names the project, initiative, or topic being discussed.
-- Write a summary of 2-3 sentences explaining what this message is about — connect the dots between the message content and the knowledge base entries. Help the reader understand WHY this message was sent and what background they need.
-- Produce 0-2 open questions — things that appear unresolved or that the reader might want to follow up on.
-- If the snippets are NOT relevant, respond with: {"insufficient": true}
-
-Respond ONLY with valid JSON — no markdown fences, no commentary:
-{"topic": "string", "summary": "string", "openQuestions": ["string", ...]}
-OR
-{"insufficient": true}`;
+const LOOKUP_SYSTEM_PROMPT = `You are an invisible AI collaborator.
+Only use the provided snippets; do not invent facts.
+Return ONLY valid JSON:
+{"topic":"3-8 word label","summary":"1-2 sentences","openQuestions":["question",...]} or {"insufficient":true}`;
 
 interface SynthesisInput {
   draftText: string;
@@ -100,11 +82,14 @@ interface SynthesisInput {
 function buildUserPrompt(input: SynthesisInput): string {
   const { draftText, recipientName, snippets, mode, channelName, channelPurpose } = input;
 
+  const clippedDraft = draftText.length > 700 ? `${draftText.slice(0, 700)}…` : draftText;
+
+  // Keep prompts compact for speed.
   const snippetBlock = snippets
-    .map(
-      (s, i) =>
-        `[${i + 1}] ${s.item.title} (type: ${s.item.type}, relevance: ${s.score.toFixed(1)})\n${s.item.summary}\n${s.item.body.slice(0, 600)}`,
-    )
+    .map((s, i) => {
+      const body = s.item.body.length > 0 ? `\n${s.item.body.slice(0, 120)}` : "";
+      return `[${i + 1}] ${s.item.title}\n${s.item.summary}${body}`;
+    })
     .join("\n\n");
 
   const channelLine = channelName
@@ -112,31 +97,18 @@ function buildUserPrompt(input: SynthesisInput): string {
     : "";
 
   if (mode === "incoming_lookup") {
-    return `The user received the following message from ${recipientName}:${channelLine}
+    return `Incoming from ${recipientName}:${channelLine}
+${clippedDraft}
 
----
-${draftText}
----
-
-Below are the most relevant internal knowledge snippets that may explain what this message is about:
-
-${snippetBlock}
-
-Synthesize a context explanation for the reader.`;
+Snippets:
+${snippetBlock}`;
   }
 
-  return `The user is composing a message to ${recipientName}.${channelLine}
+  return `Draft to ${recipientName}.${channelLine}
+${clippedDraft}
 
-Their draft so far:
----
-${draftText}
----
-
-Below are the most relevant internal knowledge snippets:
-
-${snippetBlock}
-
-Synthesize a context card the sender can attach to their message.`;
+Snippets:
+${snippetBlock}`;
 }
 
 /**
@@ -199,7 +171,8 @@ export async function synthesize(
       try {
         message = await client.messages.create({
           model,
-          max_tokens: 450,
+          // Smaller output is faster, and the UI expects concise cards.
+          max_tokens: 180,
           system: systemPrompt,
           messages: [
             {
@@ -207,7 +180,8 @@ export async function synthesize(
               content: buildUserPrompt({
                 draftText,
                 recipientName,
-                snippets: scoredItems,
+                // Trim snippet list to keep prompt small/fast.
+                snippets: scoredItems.slice(0, 3),
                 mode,
                 channelName,
                 channelPurpose,

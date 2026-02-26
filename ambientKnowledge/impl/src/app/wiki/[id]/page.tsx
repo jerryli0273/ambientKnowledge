@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getKnowledgeItemById, listKnowledgeItems } from "@/lib/knowledgeStore";
 import type { KnowledgeItem } from "@/lib/types";
+import TutorialGate from "@/components/TutorialGate";
 
 const items = listKnowledgeItems() as KnowledgeItem[];
 
@@ -297,6 +298,8 @@ export default async function WikiPage({ params }: { params: Promise<{ id: strin
           </div>
         )}
       </main>
+
+      <TutorialGate />
     </div>
   );
 }

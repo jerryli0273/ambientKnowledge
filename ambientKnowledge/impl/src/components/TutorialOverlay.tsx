@@ -1,19 +1,10 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useState, useCallback, useRef } from "react";
-
-type Placement = "auto" | "top" | "right" | "bottom" | "left" | "center";
-
-type TutorialStep = {
-  key: string;
-  title: string;
-  body: string;
-  targetId?: string;
-  placement?: Placement;
-  suggestions?: string[];
-  waitForSend?: boolean;
-  allowInteraction?: boolean;
-};
+import { createPortal } from "react-dom";
+import { TUTORIAL_EVENTS } from "@/lib/tutorialEvents";
+import { TUTORIAL_STEPS } from "@/lib/tutorialSteps";
+import type { Placement, TutorialStep } from "@/lib/tutorialTypes";
 
 type Rect = { top: number; left: number; width: number; height: number; right: number; bottom: number };
 
@@ -46,96 +37,30 @@ export default function TutorialOverlay({
   onClose,
   onFillComposer,
   onNavigate,
+  initialStepIndex,
+  onStepIndexChange,
+  onStepKeyChange,
 }: {
   open: boolean;
   onClose: () => void;
   onFillComposer?: (text: string) => void;
   onNavigate?: (target: { kind: "channel"; channelId: string } | { kind: "dm"; recipientId: string }) => void;
+  initialStepIndex?: number;
+  onStepIndexChange?: (stepIndex: number) => void;
+  onStepKeyChange?: (stepKey: string) => void;
 }) {
   const [viewport, setViewport] = useState(() => ({ w: 1024, h: 768 }));
 
-  const steps: TutorialStep[] = useMemo(
-    () => [
-      {
-        key: "welcome",
-        title: "Welcome to Ambient Knowledge",
-        body: "This demo shows how AI can act as an invisible collaborator. As you type a message, the system finds relevant docs, code links, and context \u2014 then suggests a compact card you can attach with one click.\n\nLet\u2019s walk through it together by sending a couple of real messages.",
-        placement: "center" as Placement,
-      },
-      {
-        key: "try-compose-1",
-        title: "Try it: ask about the billing migration",
-        body: "You\u2019re in #platform-migration. Type a message below (or click a suggestion) and watch the context card appear. Then hit Enter to send.",
-        targetId: "composer",
-        placement: "top" as Placement,
-        allowInteraction: true,
-        waitForSend: true,
-        suggestions: [
-          "Hey Marcus, what\u2019s the status of the billing service migration?",
-          "Can you give me a quick recap of the dual-write strategy?",
-          "What were the main blockers from the last standup?",
-        ],
-      },
-      {
-        key: "context-card-explain",
-        title: "The context card",
-        body: "See how a Suggested Context card appeared as you typed? It automatically retrieved relevant project docs and summarized them. You can click \u201cAttach\u201d to include it with your message, or \u201cInsert link\u201d to drop a source URL into the draft.\n\nThe card is grounded in retrieved sources \u2014 not free-form AI guessing.",
-        targetId: "context-card",
-        placement: "right" as Placement,
-        allowInteraction: true,
-      },
-      {
-        key: "try-dm",
-        title: "Try it: DM someone about a code issue",
-        body: "Now let\u2019s try a DM. Click a suggestion below \u2014 it\u2019ll switch to a DM with Marcus and fill in a message about React Native performance. Send it to see code-level context.",
-        placement: "center" as Placement,
-        allowInteraction: true,
-        waitForSend: true,
-        suggestions: [
-          "Hey Marcus, the RN transaction list is stuttering on Android \u2014 any ideas?",
-          "What was the fix for the FlatList lazy init issue?",
-        ],
-      },
-      {
-        key: "sources",
-        title: "Sources & auditability",
-        body: "Every context card shows its sources \u2014 internal wiki pages, standup notes, and even public GitHub issues (e.g., React Native, Next.js). Click any source link to see the full article.\n\nThis means \u201ccode links\u201d appear naturally whenever they\u2019re relevant.",
-        targetId: "context-details-toggle",
-        placement: "right" as Placement,
-        allowInteraction: true,
-      },
-      {
-        key: "lookup",
-        title: "Incoming context lookup",
-        body: "See a message you don\u2019t have context on? Click \u201cWhat\u2019s this about?\u201d on any message to get an instant recap with sources. Try it now!",
-        targetId: "lookup-button",
-        placement: "bottom" as Placement,
-        allowInteraction: true,
-      },
-      {
-        key: "more-ideas",
-        title: "More things to try",
-        body: "You\u2019ve seen the core flow! Here are more things to explore:",
-        placement: "center" as Placement,
-        allowInteraction: true,
-        suggestions: [
-          "Hey Sarah, can you approve the PR for the API gateway rate limiting?",
-          "What happened in the Feb 18 incident?",
-          "Priya, what\u2019s the latest on the onboarding redesign?",
-        ],
-      },
-      {
-        key: "free",
-        title: "Free roam \u2014 you\u2019re on your own!",
-        body: "That\u2019s it. Switch channels, open DMs, click wiki links, and try any message you like. The context engine works across all conversations.\n\nYou can reopen this tutorial anytime from the \u2726 button in the sidebar.",
-        placement: "center" as Placement,
-      },
-    ],
-    [],
-  );
+  const onNavigateRef = useRef<typeof onNavigate>(onNavigate);
+  useEffect(() => {
+    onNavigateRef.current = onNavigate;
+  }, [onNavigate]);
+
+  const steps = useMemo(() => TUTORIAL_STEPS, []);
 
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
+  const [attachedForStep, setAttachedForStep] = useState(false);
 
   const step = steps[stepIndex];
   const lastIndex = steps.length - 1;
@@ -144,31 +69,56 @@ export default function TutorialOverlay({
   const showCounter = stepIndex > 0 && stepIndex < steps.length - 1;
 
   useEffect(() => {
-    if (!open || !onNavigate) return;
+    if (!open) return;
+    const next = Math.max(0, Math.min(lastIndex, initialStepIndex ?? 0));
+    setStepIndex(next);
+  }, [open, initialStepIndex, lastIndex]);
+
+  useEffect(() => {
+    if (!open) return;
+    onStepIndexChange?.(stepIndex);
+    onStepKeyChange?.(step.key);
+  }, [open, stepIndex, step.key, onStepIndexChange, onStepKeyChange]);
+
+  useEffect(() => {
+    if (!open) return;
+    const navigate = onNavigateRef.current;
+    if (!navigate) return;
     if (step.key === "try-dm") {
-      onNavigate({ kind: "dm", recipientId: "user-marcus" });
+      navigate({ kind: "dm", recipientId: "user-marcus" });
     } else if (step.key === "try-compose-1") {
-      onNavigate({ kind: "channel", channelId: "platform-migration" });
+      navigate({ kind: "channel", channelId: "platform-migration" });
     }
-  }, [open, step.key, onNavigate]);
+  }, [open, step.key]);
 
   const handleMessageSent = useCallback(() => {
     if (step.waitForSend) {
+      if (step.requireAttachBeforeSend && !attachedForStep) {
+        return;
+      }
       setStepIndex((i) => Math.min(lastIndex, i + 1));
     }
-  }, [step.waitForSend, lastIndex]);
+  }, [step.waitForSend, step.requireAttachBeforeSend, attachedForStep, lastIndex]);
+
+  useEffect(() => {
+    if (!open) return;
+    // Reset per-step attachment gate when entering a new step.
+    setAttachedForStep(false);
+  }, [open, step.key]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = () => setAttachedForStep(true);
+    window.addEventListener(TUTORIAL_EVENTS.contextAttached, handler);
+    return () => window.removeEventListener(TUTORIAL_EVENTS.contextAttached, handler);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const handler = () => handleMessageSent();
-    window.addEventListener("tutorial:messageSent", handler);
-    return () => window.removeEventListener("tutorial:messageSent", handler);
+    window.addEventListener(TUTORIAL_EVENTS.messageSent, handler);
+    return () => window.removeEventListener(TUTORIAL_EVENTS.messageSent, handler);
   }, [open, handleMessageSent]);
-
-  useEffect(() => {
-    if (!open) return;
-    setStepIndex(0);
-  }, [open]);
 
   const prevRectRef = useRef<Rect | null>(null);
 
@@ -226,7 +176,7 @@ export default function TutorialOverlay({
         border: "2px solid var(--accent)",
         pointerEvents: "none" as const,
         transition: "top 120ms ease, left 120ms ease, width 120ms ease, height 120ms ease",
-        zIndex: 61,
+        zIndex: 9998,
       }
     : null;
 
@@ -261,6 +211,13 @@ export default function TutorialOverlay({
     }
   }
 
+  // On the first compose step, the context card can appear above the composer.
+  // Anchor the tutorial card to the viewport's top-right to avoid overlap.
+  if (!mobile && step.key === "try-compose-1") {
+    cardTop = 16;
+    cardLeft = Math.max(12, vw - cardWidth - 16);
+  }
+
   const canBack = stepIndex > 0;
   const canNext = stepIndex < lastIndex && !step.waitForSend;
 
@@ -281,24 +238,25 @@ export default function TutorialOverlay({
     onFillComposer?.(text);
   };
 
-  return (
+  return createPortal(
     <>
       {/* Backdrop: blocks background clicks on non-interactive steps */}
       {!allowInteraction && (
         <div
-          className="fixed inset-0 z-[60]"
-          style={{ background: spotlight ? "transparent" : overlayColor }}
+          className="fixed inset-0"
+          style={{ background: spotlight ? "transparent" : overlayColor, zIndex: 9997 }}
           onClick={(e) => e.stopPropagation()}
         />
       )}
       {spotlight && <div style={spotlight} />}
 
       <div
-        className="fixed rounded-xl border p-4 z-[62]"
+        className="fixed rounded-xl border p-4"
         style={{
           width: cardWidth,
           top: cardTop,
           left: cardLeft,
+          zIndex: 9999,
           background: "var(--main-bg)",
           borderColor: "var(--main-border)",
           boxShadow: "0 10px 24px color-mix(in srgb, var(--main-text) 18%, transparent)",
@@ -361,7 +319,9 @@ export default function TutorialOverlay({
 
         {step.waitForSend && (
           <p className="text-[11.5px] mt-2 italic" style={{ color: "var(--main-text-muted)" }}>
-            Type or click a suggestion, then press Enter to send. The tutorial advances automatically.
+            {step.requireAttachBeforeSend
+              ? "Type or click a suggestion, attach the Suggested Context card, then press Enter to send. The tutorial advances automatically."
+              : "Type or click a suggestion, then press Enter to send. The tutorial advances automatically."}
           </p>
         )}
 
@@ -408,6 +368,7 @@ export default function TutorialOverlay({
           )}
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   );
 }

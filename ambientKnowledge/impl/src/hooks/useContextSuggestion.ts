@@ -3,9 +3,9 @@
 import { useCallback, useRef, useState } from "react";
 import type { ContextResponse } from "@/lib/types";
 
-const DEBOUNCE_MS = 600;
+const DEBOUNCE_MS = 250;
 const MIN_LENGTH = 10;
-const COOLDOWN_MS = 1500;
+const COOLDOWN_MS = 900;
 const DISMISS_SUPPRESS_MS = 12_000;
 
 function normalizeDraft(text: string): string {

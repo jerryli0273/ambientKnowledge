@@ -252,10 +252,11 @@ export async function getContextSuggestion(input: RequestInput): Promise<Context
     let response: ContextResponse | null = null;
 
     if (useSynthesis) {
+      // Resolve channel metadata for richer synthesis prompts
+      const channelMeta = input.channelId ? getChannelById(input.channelId) : undefined;
+
       try {
         inflightSynthesisCount += 1;
-        // Resolve channel metadata for richer synthesis prompts
-        const channelMeta = input.channelId ? getChannelById(input.channelId) : undefined;
         response = await synthesize(
           normalizedDraft,
           USERS[input.recipientId]?.name ?? "teammate",

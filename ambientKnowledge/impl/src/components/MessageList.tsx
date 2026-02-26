@@ -437,6 +437,7 @@ function AttachedContextBlock({
     <div
       className="mt-2 rounded-lg border overflow-hidden max-w-lg"
       style={{ borderColor: "var(--main-border)", background: "var(--main-bg)" }}
+      data-tutorial-id="attached-context"
     >
       {/* Accent bar */}
       <div className="h-1" style={{ background: "var(--accent)" }} />
@@ -504,7 +505,7 @@ function AttachedContextBlock({
 
         {/* Source links */}
         {context.sources.length > 0 && (
-          <div>
+          <div data-tutorial-id="attached-context-sources">
             <p
               className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
               style={{ color: "var(--main-text-muted)" }}

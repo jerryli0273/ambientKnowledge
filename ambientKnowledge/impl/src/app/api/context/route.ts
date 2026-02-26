@@ -31,6 +31,7 @@ function getClientKey(req: NextRequest): string {
 
 export async function POST(req: NextRequest) {
   try {
+    const startedAt = Date.now();
     const body: ContextRequest = await req.json();
     const { draftText, recipientId, mode = "compose", channelId } = body;
 
@@ -55,8 +56,9 @@ export async function POST(req: NextRequest) {
     }
 
     const stats = getEngineStats();
+    const ms = Date.now() - startedAt;
     console.log(
-      `[/api/context] mode=${mode} tier=${result.servingTier} cache=${stats.cacheSize} inFlightSynth=${stats.inflightSynthesisCount} query="${draftText.slice(0, 60)}"`,
+      `[/api/context] ${ms}ms mode=${mode} tier=${result.servingTier} cache=${stats.cacheSize} inFlightSynth=${stats.inflightSynthesisCount} query="${draftText.slice(0, 60)}"`,
     );
 
     return NextResponse.json<ContextResponse>(result);

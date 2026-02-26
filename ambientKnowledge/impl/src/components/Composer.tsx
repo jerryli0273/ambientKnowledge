@@ -11,6 +11,8 @@ interface ComposerProps {
   onDraftChange: (text: string) => void;
   onSend: (text: string) => void;
   onRemoveContext: () => void;
+  sendDisabled?: boolean;
+  sendDisabledReason?: string;
 }
 
 export default function Composer({
@@ -20,6 +22,8 @@ export default function Composer({
   onDraftChange,
   onSend,
   onRemoveContext,
+  sendDisabled,
+  sendDisabledReason,
 }: ComposerProps) {
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -48,6 +52,7 @@ export default function Composer({
   };
 
   const handleSend = () => {
+    if (sendDisabled) return;
     if (!draft.trim()) return;
     onSend(draft);
     setDraft("");
@@ -144,13 +149,14 @@ export default function Composer({
 
           <button
             onClick={handleSend}
-            disabled={!draft.trim()}
+            disabled={!!sendDisabled || !draft.trim()}
             className="rounded-lg p-1.5 transition-colors disabled:opacity-30"
             style={{
-              background: draft.trim() ? "var(--accent)" : "transparent",
-              color: draft.trim() ? "#fff" : "var(--main-text-muted)",
+              background: draft.trim() && !sendDisabled ? "var(--accent)" : "transparent",
+              color: draft.trim() && !sendDisabled ? "#fff" : "var(--main-text-muted)",
             }}
-            title="Send (Enter)"
+            title={sendDisabled && sendDisabledReason ? sendDisabledReason : "Send (Enter)"}
+            aria-disabled={sendDisabled ? true : undefined}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path
