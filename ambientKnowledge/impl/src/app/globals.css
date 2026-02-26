@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+:root {
+  /* Slack-inspired palette */
+  --sidebar-bg: #1a1d21;
+  --sidebar-text: #cfc3cf;
+  --sidebar-text-bright: #ffffff;
+  --sidebar-hover: #27242c;
+  --sidebar-active: #1264a3;
+  --sidebar-badge: #e01e5a;
+
+  --main-bg: #ffffff;
+  --main-text: #1d1c1d;
+  --main-text-muted: #616061;
+  --main-border: #e8e8e8;
+
+  --composer-bg: #ffffff;
+  --composer-border: #c8c8c8;
+  --composer-focus: #1264a3;
+
+  --msg-hover: #f8f8f8;
+  --accent: #1264a3;
+  --accent-light: #e8f5fe;
+  --accent-dark: #0b4f8a;
+  --success: #2bac76;
+  --warning: #ecb22e;
+  --danger: #e01e5a;
+
+  --context-bg: #f8f8f8;
+  --context-border: #e0e0e0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--main-bg);
+  color: var(--main-text);
+  font-family: "Lato", "Helvetica Neue", Helvetica, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.46668;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c0c0c0;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a0a0a0;
+}

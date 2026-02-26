@@ -1,0 +1,48 @@
+===== Page 1 =====
+
+Take-home
+Take-home for product roles at humans&
+Goal
+Build a web application that uses AI facilitate collaboration and communication between
+people, teams and organizations.
+The app should use a prompted version of Claude as the "collaborator" model that
+facilitates interactions between users.
+Please spend a minimum of 4 and a maximum of 8 hours on this task.
+We're looking for excellence. This is your chance to show us what you can really do —
+aim to build something that wows us. Go beyond the basics: thoughtful design, polished
+interactions, and a compelling product vision.
+Constraints
+Use any stack you are comfortable with.
+The use of coding agents like Codex is highly encouraged but code quality will be
+assessed.
+The app should have clear instructions for how we can run it or ideally be hosted
+somewhere (e.g. Vercel, Render, etc.) so we can see it in action.
+You will be given an Anthropic API key to use for the app and for Claude Code / Cursor.
+Write-up
+A write-up is required alongside the application. It should cover:
+Product vision — What you built and why. Explain the product, the problem it solves,
+and the user experience you were aiming for.
+Thesis — Your perspective on how AI should facilitate collaboration between people,
+teams, and organizations and how your MVP fits into that vision.
+Tradeoffs — What tradeoffs did you make given the time constraints? What would you
+do differently with more time?
+
+===== Page 2 =====
+
+Engineering decisions — Why you chose the stack, architecture, and patterns you did.
+What alternatives did you consider?
+How we will evaluate your app
+We set a high bar — we want to see work that reflects real craft and product intuition.
+Specifically, we're looking for:
+Extensibility and readability of the code — Is it clean, well-structured, and easy to
+build on?
+Creative AI-human collaboration — Does the app use AI in a way that genuinely
+enhances how people work together, not just as a bolt-on?
+Polish and UX — Does the app feel finished? Do the details show care and
+intentionality?
+Beautiful simplicity — Does AI enable a leaner UX? The best AI products cut down on
+screens, form fields, and friction because the intelligence does the heavy lifting — fewer
+steps and less cognitive load.
+Robustness of the stack — Would this architecture scale? Would it increase developer
+velocity?
+The best submissions will feel like the seed of a real product, not just a demo.
