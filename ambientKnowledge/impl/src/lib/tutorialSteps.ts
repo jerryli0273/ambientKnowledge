@@ -11,16 +11,16 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   },
   {
     key: "try-compose-1",
-    title: "Try it: ask for next steps on the billing migration",
-    body: "You’re in #platform-migration. Instead of asking “what’s the status?”, ask for a decision, owner, or next step — and use the context card as shared background. Type a message below (or click a suggestion) and watch the context card appear. Then hit Enter to send.",
+    title: "Try it: assign a task with missing context",
+    body: "You’re in #platform-migration. A common use case is assigning a task to someone who hasn’t been deep in that workstream yet — so they need the ‘why’, owners, and next steps in one place. Type a message below (or click a suggestion) and watch the context card appear. Then hit Enter to send.",
     targetId: "composer",
     placement: "top",
     allowInteraction: true,
     waitForSend: true,
     suggestions: [
-      "Hey Marcus — can you confirm who’s signing off rollback validation, and the expected date?",
-      "Before cutover, what are the top 2 risks we should monitor (data consistency vs API latency), and who owns each?",
-      "Can you sanity-check the cutover checklist (dual-write → backfill → shadow-read → cutover) and flag anything missing?",
+      "Hey Marcus — can you take point on the API Gateway v2.0 Kong→Envoy rollout handoff? You haven’t been in the weeds here, so I’ll attach context with owners + checklist. Can you confirm who signs off rollback validation and what date we’re targeting?",
+      "Hey Marcus — can you own driving the publish-ready checklist for the gateway rollout (legal + marketing + rollback/runbook)? If you haven’t followed this thread, I’ll attach the relevant docs so you can run it end-to-end.",
+      "Can you sanity-check the cutover checklist (dual-write → backfill → shadow-read → cutover) and turn it into: owners, ETAs, and what ‘done’ means for each step?",
     ],
   },
   {
@@ -34,14 +34,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     key: "try-dm",
     title: "Try it: DM someone about a code issue",
-    body: "Now let’s try a DM. Click a suggestion below — it’ll switch to a DM with Marcus and fill in a message about React Native performance. When the Suggested Context card appears, click “Attach to message”, then send.",
+    body: "Now let’s try a DM. Click a suggestion below — it’ll switch to a DM with Marcus and fill in a message that assigns a task to someone who may not have the full backstory. When the Suggested Context card appears, click “Attach to message”, then send.",
     placement: "center",
     allowInteraction: true,
     waitForSend: true,
     requireAttachBeforeSend: true,
     suggestions: [
-      "Hey Marcus, the RN transaction list is stuttering on Android — any ideas?",
-      "What was the fix for the FlatList lazy init issue?",
+      "Hey Marcus — can you take point on fixing the RN transaction list stutter on Android? If you haven’t dug into it yet, I’ll attach the profiling notes + likely root causes so you can run with it.",
+      "Hey Marcus — can you own the next-step plan for the FlatList lazy init issue (repro steps + suspected cause + what you’ll try first)? I’ll attach the relevant context so you’re not starting from scratch.",
     ],
   },
   {

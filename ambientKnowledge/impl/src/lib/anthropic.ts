@@ -62,11 +62,40 @@ function getClient(): Anthropic {
 const COMPOSE_SYSTEM_PROMPT = `You are an invisible AI collaborator in a workplace messaging app.
 Only use the provided snippets; do not invent facts.
 
+You are generating a small “Suggested Context” card that helps the user send a productive message.
+
+Rules:
+- Return ONLY valid JSON (no markdown, no extra keys).
+- "topic": 3–8 words.
+- "summary": 1–2 sentences, concrete and grounded in snippets.
+- "openQuestions": 2–4 items. Each must be:
+  - Specific and answerable in one reply.
+  - Useful for moving work forward (owner, date, criteria, next action, dependency).
+  - Written so it can be pasted directly into the draft (no mention of “snippets” or “context”).
+  - NOT a rephrase of the summary; avoid generic questions like “Can you confirm…?”
+  - If snippets include names/roles (e.g., release manager), prefer questions that route to that owner.
+  - If snippets contain a checklist/action-items section, turn it into questions that ask for: who owns each item, by when, and what “done” looks like.
+
+If the snippets are too thin to ground a helpful card, return {"insufficient":true}.
+
 Return ONLY valid JSON:
 {"topic":"3-8 word label","summary":"1-2 sentences","openQuestions":["question",...]} or {"insufficient":true}`;
 
 const LOOKUP_SYSTEM_PROMPT = `You are an invisible AI collaborator.
 Only use the provided snippets; do not invent facts.
+
+You are generating a small context card to help the user respond to an incoming message.
+
+Rules:
+- Return ONLY valid JSON (no markdown, no extra keys).
+- "topic": 3–8 words.
+- "summary": 1–2 sentences, concrete and grounded in snippets.
+- "openQuestions": 2–4 items, specific/answerable, focused on unblocking the thread (owner/date/criteria/next action).
+- Do not rephrase the summary as a question.
+ - If names/roles are present, prefer routing questions to the right owner.
+
+If the snippets are too thin to ground a helpful card, return {"insufficient":true}.
+
 Return ONLY valid JSON:
 {"topic":"3-8 word label","summary":"1-2 sentences","openQuestions":["question",...]} or {"insufficient":true}`;
 
@@ -79,6 +108,82 @@ interface SynthesisInput {
   channelPurpose?: string;
 }
 
+function normalizeQuestion(q: string): string {
+  return q.trim().replace(/\s+/g, " ");
+}
+
+function isGenericOpenQuestion(q: string): boolean {
+  const s = normalizeQuestion(q).toLowerCase();
+  // Heuristics: questions that restate the summary without adding actionable detail.
+  if (s.startsWith("can you confirm")) return true;
+  if (s === "who is responsible for signing off?" || s === "who is signing off?") return true;
+  if (s.includes("who is responsible") && s.includes("signing off")) return true;
+  if (s.includes("who is the owner") && (s.includes("sign") || s.includes("approve"))) return true;
+  if ((s.includes("expected date") || s.includes("target date")) && !s.includes("deploy") && !s.includes("publish")) {
+    return true;
+  }
+  return false;
+}
+
+function uniqStrings(items: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of items) {
+    const s = normalizeQuestion(raw);
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
+}
+
+function buildHeuristicQuestions(scoredItems: ScoredItem[]): string[] {
+  // Derive actionable follow-ups from checklist-style docs and rollout/runbook language.
+  const questions: string[] = [];
+  const bodies = scoredItems
+    .filter((s) => s.item.type !== "user")
+    .slice(0, 5)
+    .map((s) => s.item.body)
+    .filter(Boolean);
+
+  const text = bodies.join("\n\n");
+
+  // Checklist items like "- [ ] Legal review ... (Priya to coordinate)"
+  const checklist = /^(?:-\s*)?\[\s*\]\s*(.+)$/gim;
+  for (const match of text.matchAll(checklist)) {
+    const item = (match[1] ?? "").trim();
+    if (!item) continue;
+
+    const ownerMatch = item.match(/\(([^)]+)\)\s*$/);
+    const owner = ownerMatch?.[1]?.trim();
+    const itemNoOwner = ownerMatch ? item.replace(/\s*\([^)]+\)\s*$/, "").trim() : item;
+
+    // Turn the checkbox into an owner/date/definition-of-done question.
+    if (owner && owner.length <= 40) {
+      questions.push(`For \"${itemNoOwner}\" (${owner}) — what’s the ETA, and what’s the sign-off step?`);
+    } else {
+      questions.push(`For \"${itemNoOwner}\" — who owns it, and what’s the ETA?`);
+    }
+
+    if (questions.length >= 3) break;
+  }
+
+  // Rollback plan section.
+  const rollbackLine = text.match(/Rollback plan:\s*([^\n]+)/i)?.[1]?.trim();
+  if (rollbackLine) {
+    questions.push(`Rollback: have we verified \"${rollbackLine}\" in staging, and who signs off that validation?`);
+  }
+
+  // If a doc calls out a publish/deploy window, ask for the concrete scheduling link.
+  if (/publish date/i.test(text) || /deploy window/i.test(text)) {
+    questions.push("What’s the planned deploy window for the rollout, and when should we publish the release notes relative to it?");
+  }
+
+  return uniqStrings(questions).slice(0, 4);
+}
+
 function buildUserPrompt(input: SynthesisInput): string {
   const { draftText, recipientName, snippets, mode, channelName, channelPurpose } = input;
 
@@ -87,7 +192,7 @@ function buildUserPrompt(input: SynthesisInput): string {
   // Keep prompts compact for speed.
   const snippetBlock = snippets
     .map((s, i) => {
-      const body = s.item.body.length > 0 ? `\n${s.item.body.slice(0, 120)}` : "";
+      const body = s.item.body.length > 0 ? `\n${s.item.body.slice(0, 360)}` : "";
       return `[${i + 1}] ${s.item.title}\n${s.item.summary}${body}`;
     })
     .join("\n\n");
@@ -172,7 +277,7 @@ export async function synthesize(
         message = await client.messages.create({
           model,
           // Smaller output is faster, and the UI expects concise cards.
-          max_tokens: 180,
+          max_tokens: 280,
           system: systemPrompt,
           messages: [
             {
@@ -180,8 +285,8 @@ export async function synthesize(
               content: buildUserPrompt({
                 draftText,
                 recipientName,
-                // Trim snippet list to keep prompt small/fast.
-                snippets: scoredItems.slice(0, 3),
+                // Include a few more snippets so owners/dates/checklists can surface.
+                snippets: scoredItems.slice(0, 5),
                 mode,
                 channelName,
                 channelPurpose,
@@ -217,6 +322,23 @@ export async function synthesize(
     const parsed = JSON.parse(rawText);
     if (parsed?.insufficient) return null;
 
+    const heuristicQuestions = buildHeuristicQuestions(scoredItems);
+    const parsedQuestions = Array.isArray(parsed.openQuestions) ? parsed.openQuestions : [];
+    const cleanedParsedQuestions = uniqStrings(parsedQuestions);
+    const genericCount = cleanedParsedQuestions.filter(isGenericOpenQuestion).length;
+    const genericRatio = cleanedParsedQuestions.length
+      ? genericCount / cleanedParsedQuestions.length
+      : 1;
+
+    // If the model gives vague questions, replace them with snippet-grounded ones.
+    const openQuestions =
+      heuristicQuestions.length > 0 && (cleanedParsedQuestions.length < 2 || genericRatio >= 0.5)
+        ? uniqStrings([
+            ...heuristicQuestions,
+            ...cleanedParsedQuestions.filter((q) => !isGenericOpenQuestion(q)),
+          ]).slice(0, 4)
+        : cleanedParsedQuestions;
+
     const topScore = scoredItems[0]?.score ?? 0;
     let confidence: Confidence = "low";
     if (topScore >= 8) confidence = "high";
@@ -225,7 +347,7 @@ export async function synthesize(
     return {
       topic: parsed.topic,
       summary: parsed.summary,
-      openQuestions: parsed.openQuestions ?? [],
+      openQuestions,
       sources: scoredItems.map((s) => ({
         id: s.item.id,
         title: s.item.title,

@@ -11,6 +11,67 @@ import type {
   ScoredItem,
 } from "./types";
 
+function normalizeQuestion(q: string): string {
+  return q.trim().replace(/\s+/g, " ");
+}
+
+function uniqStrings(items: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of items) {
+    const s = normalizeQuestion(raw);
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
+}
+
+function deriveOpenQuestions(scoredItems: ScoredItem[]): string[] {
+  // Build a few actionable questions even when LLM synthesis is unavailable.
+  const questions: string[] = [];
+
+  const text = scoredItems
+    .filter((s) => s.item.type !== "user")
+    .slice(0, 5)
+    .map((s) => s.item.body)
+    .filter(Boolean)
+    .join("\n\n");
+
+  if (!text) return [];
+
+  // Checklist → owner/date/definition-of-done questions.
+  const checklist = /^(?:-\s*)?\[\s*\]\s*(.+)$/gim;
+  for (const match of text.matchAll(checklist)) {
+    const item = (match[1] ?? "").trim();
+    if (!item) continue;
+    const ownerMatch = item.match(/\(([^)]+)\)\s*$/);
+    const owner = ownerMatch?.[1]?.trim();
+    const itemNoOwner = ownerMatch ? item.replace(/\s*\([^)]+\)\s*$/, "").trim() : item;
+
+    if (owner && owner.length <= 40) {
+      questions.push(`For "${itemNoOwner}" (${owner}) — what’s the ETA, and what’s the sign-off step?`);
+    } else {
+      questions.push(`For "${itemNoOwner}" — who owns it, and what’s the ETA?`);
+    }
+
+    if (questions.length >= 3) break;
+  }
+
+  const rollbackLine = text.match(/Rollback plan:\s*([^\n]+)/i)?.[1]?.trim();
+  if (rollbackLine) {
+    questions.push(`Rollback: have we verified "${rollbackLine}" in staging, and who signs off that validation?`);
+  }
+
+  if (/publish date/i.test(text) || /deploy window/i.test(text)) {
+    questions.push("What’s the planned deploy window, and when should we publish the release notes relative to it?");
+  }
+
+  return uniqStrings(questions).slice(0, 4);
+}
+
 const CACHE_TTL_MS = 45_000;
 const MAX_CACHE_SIZE = 5_000;
 const RATE_LIMIT_WINDOW_MS = 10_000;
@@ -66,7 +127,7 @@ function buildRetrievalOnly(scoredItems: ScoredItem[]): ContextResponse | null {
   return {
     topic: top.item.title,
     summary: top.item.summary,
-    openQuestions: [],
+    openQuestions: deriveOpenQuestions(scoredItems),
     sources: toSources(scoredItems),
     confidence: getConfidence(top.score),
     servingTier: "retrieval",
@@ -257,14 +318,21 @@ export async function getContextSuggestion(input: RequestInput): Promise<Context
 
       try {
         inflightSynthesisCount += 1;
-        response = await synthesize(
-          normalizedDraft,
-          USERS[input.recipientId]?.name ?? "teammate",
-          scoredItems,
-          input.mode,
-          channelMeta?.name,
-          channelMeta?.purpose,
-        );
+        try {
+          response = await synthesize(
+            normalizedDraft,
+            USERS[input.recipientId]?.name ?? "teammate",
+            scoredItems,
+            input.mode,
+            channelMeta?.name,
+            channelMeta?.purpose,
+          );
+        } catch (err) {
+          // Never fail the request due to synthesis. The demo should always
+          // return at least retrieval-only context.
+          console.error("[contextEngine] synthesize failed; falling back to retrieval", err);
+          response = null;
+        }
       } finally {
         inflightSynthesisCount = Math.max(0, inflightSynthesisCount - 1);
       }
@@ -276,6 +344,10 @@ export async function getContextSuggestion(input: RequestInput): Promise<Context
       response.servingTier = "retrieval";
     } else {
       response.servingTier = "synthesis";
+    }
+
+    if (!response.openQuestions || response.openQuestions.length === 0) {
+      response.openQuestions = deriveOpenQuestions(scoredItems);
     }
 
     if (input.mode === "incoming_lookup" && response.sources?.length) {
